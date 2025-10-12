@@ -1,0 +1,5 @@
+# Core dependencies (none required for basic functionality)
+# All dependencies are built into Python standard library
+
+# Development dependencies
+pyinstaller>=5.0  # For building executables
