@@ -1,5 +1,8 @@
 # 🎯 Wordle Helper
 
+[![Latest Release](https://img.shields.io/github/v/release/rkreitschmann/WordleHelper)](https://github.com/rkreitschmann/WordleHelper/releases/latest)
+[![Download](https://img.shields.io/github/downloads/rkreitschmann/WordleHelper/total)](https://github.com/rkreitschmann/WordleHelper/releases/latest)
+
 An interactive Python tool to help solve Wordle puzzles by filtering words based on your clues.
 
 ## ✨ Features
@@ -13,10 +16,13 @@ An interactive Python tool to help solve Wordle puzzles by filtering words based
 
 ## 🚀 Quick Start
 
-### Option 1: Run the Executable (Windows)
-1. Download the latest release from [Releases](../../releases)
-2. Run `WordleHelper.exe`
-3. Follow the interactive prompts
+### Option 1: Download Executable (Recommended)
+**[📥 Download Latest Release](https://github.com/rkreitschmann/WordleHelper/releases/latest)**
+
+1. Click the link above to go to the latest release
+2. Download `WordleHelper.exe` from the Assets section
+3. Run the executable (no installation needed!)
+4. Follow the interactive prompts
 
 ### Option 2: Run from Source
 1. Clone this repository

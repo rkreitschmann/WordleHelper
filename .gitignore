@@ -71,3 +71,6 @@ dist/
 # Temporary files
 *.tmp
 *.temp
+
+# Batch files
+*.bat
