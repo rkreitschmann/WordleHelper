@@ -3,6 +3,8 @@ import json
 import os
 from typing import List, Dict, Optional, Union
 
+print("DEBUG: Script started")
+
 
 class WordleHelper:
     def __init__(self, db_path: str = "wordle_words.db"):
@@ -28,6 +30,11 @@ class WordleHelper:
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_length ON words(length)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_word ON words(word)')
         self.conn.commit()
+        
+        # Verify table was created successfully
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='words'")
+        if not cursor.fetchone():
+            raise RuntimeError("Failed to create words table")
     
     def load_words(self):
         """Load English words from local JSON file into database"""
@@ -37,8 +44,8 @@ class WordleHelper:
         
         if word_count > 0:
             print(f"Words already loaded in database ({word_count} words)")
-            return
-        
+            return 
+        print("Database empty")
         print("⏳ Starting database creation process...")
             
         # Try to load from local JSON file first
@@ -112,7 +119,7 @@ class WordleHelper:
         print("🎉 Database creation completed!")
     
     def filter_words(self, word_length: int = 5, known_letters: str = "", wrong_letters: str = "", 
-                    wrong_positions: Optional[Dict[int, str]] = None) -> List[str]:
+                    wrong_positions: Optional[List[tuple]] = None) -> List[str]:
         """
         Filter words based on Wordle constraints
         
@@ -120,11 +127,11 @@ class WordleHelper:
             word_length: Length of words to search for (default: 5)
             known_letters: Pattern with known letters (use _ for unknown), e.g. "A_O__"
             wrong_letters: Letters not in the word, e.g. "XYZ"
-            wrong_positions: Dict of {position: letter} for yellow letters, e.g. {1: 'A', 3: 'E'}
+            wrong_positions: List of (position, letter) for yellow letters, e.g. [(1, 'A'), (3, 'E')]
                 Note: positions in wrong_positions are 1-based (first letter is position 1).
         """
         if wrong_positions is None:
-            wrong_positions = {}
+            wrong_positions = []
             
         cursor = self.conn.cursor()
         
@@ -148,8 +155,8 @@ class WordleHelper:
                 params.append(f"%{letter}%")
         
         # Handle yellow letters (wrong positions)
-        for position, letter in wrong_positions.items():
-            if 1 <= position <= word_length:  # Positions are 1-based
+        for position, letter in wrong_positions:
+            if 1 <= position <= word_length:
                 # Letter must be in the word but not at this position
                 query += f" AND word LIKE ? AND SUBSTR(word, {position}, 1) != ?"
                 params.append(f"%{letter.upper()}%")
@@ -211,7 +218,7 @@ def interactive_wordle_helper(helper: WordleHelper):
         # Initialize current constraints
         word_length = 5
         known_pattern = "_" * word_length
-        yellow_letters = {}
+        yellow_letters = []
         wrong_letters = ""
 
         while True:
@@ -353,12 +360,15 @@ def interactive_wordle_helper(helper: WordleHelper):
                         print(f"   Invalid position. Must be 1-{word_length if word_length is not None else 5}.")
 
             # 3. Ask for letters that are in the word but wrong position (yellow letters)
-            prev_yellow_str = f" (previous: " + ", ".join([f"{v}{k}" for k, v in (prev_yellow_letters or {}).items()]) + ")" if prev_yellow_letters else ""
+            prev_yellow_str = (
+                " (previous: " + ", ".join([f"{letter}{pos}" for pos, letter in (prev_yellow_letters or [])]) + ")"
+                if prev_yellow_letters else ""
+            )
             print(f"\n3. Enter letters that are in the word but in wrong positions (YELLOW letters):{prev_yellow_str}")
             # Persist yellow letters across rounds
-            yellow_letters = prev_yellow_letters.copy() if prev_yellow_letters else {}
+            yellow_letters = prev_yellow_letters.copy() if prev_yellow_letters else []
             if yellow_letters:
-                print(f"   Previous yellow letters: " + ", ".join([f"{v}{k}" for k, v in yellow_letters.items()]))
+                print(f"   Previous yellow letters: " + ", ".join([f"{letter}{pos}" for pos, letter in yellow_letters]))
             print("   You can also remove a yellow letter by entering '-E4' or '-E 4'. Multiple pairs/removals allowed in one line.")
 
             while True:
@@ -387,12 +397,12 @@ def interactive_wordle_helper(helper: WordleHelper):
                                 print("   Invalid format for removal. Use '-LETTER POSITION' (e.g., '-E 4') or '-E4'.")
                                 i += 1
                                 continue
-                            # Remove if exists
-                            to_remove = [k for k, v in yellow_letters.items() if k == position and v == letter]
-                            for k in to_remove:
-                                yellow_letters.pop(k)
+                            # Remove all matching (position, letter) pairs
+                            before = len(yellow_letters)
+                            yellow_letters = [yl for yl in yellow_letters if not (yl[0] == position and yl[1] == letter)]
+                            after = len(yellow_letters)
                             print(f"   Removed: {letter} is NOT in position {position}")
-                            summary = ', '.join([f"{v}{k}" for k, v in yellow_letters.items()])
+                            summary = ', '.join([f"{l}{p}" for p, l in yellow_letters])
                             print(f"   incorrect positions: {summary if summary else '(none)'}")
                             continue
                         # Add yellow letter constraint
@@ -411,9 +421,9 @@ def interactive_wordle_helper(helper: WordleHelper):
                             i += 1
                             continue
                         if 1 <= position <= (word_length if word_length is not None else 5) and letter.isalpha():
-                            yellow_letters[position] = letter
+                            yellow_letters.append((position, letter))
                             print(f"   Added: {letter} is NOT in position {position}")
-                            summary = ', '.join([f"{v}{k}" for k, v in yellow_letters.items()])
+                            summary = ', '.join([f"{l}{p}" for p, l in yellow_letters])
                             print(f"   incorrect positions: {summary}")
                         else:
                             print(f"   Invalid input. Position must be 1-{word_length if word_length is not None else 5} and letter must be alphabetic.")
@@ -475,7 +485,7 @@ def interactive_wordle_helper(helper: WordleHelper):
                         params.append(f"%{letter}%")
 
             # Handle yellow letters (wrong positions)
-            for position, letter in yellow_letters.items():
+            for position, letter in yellow_letters:
                 # Letter must be in the word but not at this position
                 query += f" AND word LIKE ? AND SUBSTR(word, {position}, 1) != ?"
                 params.append(f"%{letter}%")
@@ -549,7 +559,7 @@ def main(helper: WordleHelper):
     
     # Example 4: Yellow letters (wrong positions)
     print("4. Words containing A but not in position 1, and E but not in position 2:")
-    yellow_words = helper.filter_words(word_length=5, wrong_positions={1: 'A', 2: 'E'})
+    yellow_words = helper.filter_words(word_length=5, wrong_positions=[(1, 'A'), (2, 'E')])
     print(f"Found {len(yellow_words)} words:")
     print(yellow_words[:10])
     print()
@@ -560,7 +570,7 @@ def main(helper: WordleHelper):
         word_length=5,
         known_letters="_O___",
         wrong_letters="TER",
-        wrong_positions={1: 'A'}
+        wrong_positions=[(1, 'A')]
     )
     print(f"Found {len(complex_words)} words:")
     print(complex_words[:10])
@@ -581,15 +591,15 @@ def main(helper: WordleHelper):
 
 
 if __name__ == "__main__":
-    print("Choose mode:")
+    print("🔄 Initializing Wordle Helper...")
+    helper = WordleHelper()
+    helper.load_words()
+
+    print("\nChoose mode:")
     print("1. Interactive Wordle Helper")
     print("2. Demo mode (examples)")
 
     choice = input("Enter choice (1 or 2, default: 1): ").strip()
-
-    print("\n🔄 Initializing Wordle Helper...")
-    helper = WordleHelper()
-    helper.load_words()
 
     try:
         if choice == "2":
@@ -598,3 +608,6 @@ if __name__ == "__main__":
             interactive_wordle_helper(helper)
     finally:
         helper.close()
+        
+        
+print("DEBUG")
