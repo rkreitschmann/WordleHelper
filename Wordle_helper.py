@@ -3,10 +3,19 @@ import json
 import os
 from typing import List, Dict, Optional, Union
 
-print("DEBUG: Script started")
+__version__ = "2.0.0"
+
+# print("DEBUG: Script started")
 
 
 class WordleHelper:
+    # Scoring algorithm constants
+    POSITION_WEIGHTS = [1.2, 1.0, 0.9, 1.0, 1.1]
+    VOWEL_BONUS = 500
+    MAX_VOWEL_BONUS = 1500
+    START_END_BONUS = 300
+    REPEAT_PENALTY = 200
+    
     def __init__(self, db_path: str = "wordle_words.db"):
         # Ensure the database is created in the same directory as this script
         if not os.path.isabs(db_path):
@@ -181,32 +190,69 @@ class WordleHelper:
         return dict(sorted(frequency.items(), key=lambda x: x[1], reverse=True))
     
     def suggest_best_words(self, filtered_words: List[str], top_n: int = 10) -> List[str]:
-        """Suggest best words based on letter frequency"""
+        """Suggest best words based on improved letter frequency and position weighting"""
         if not filtered_words:
             return []
         
         frequency = self.get_letter_frequency(filtered_words)
         
-        def word_score(word):
-            # Score based on unique letters and their frequency
-            unique_letters = set(word)
-            return sum(frequency.get(letter, 0) for letter in unique_letters)
-        
-        scored_words = [(word, word_score(word)) for word in filtered_words]
+        scored_words = [(word, self.calculate_word_score(word, frequency)) for word in filtered_words]
         scored_words.sort(key=lambda x: x[1], reverse=True)
         
         return [word for word, score in scored_words[:top_n]]
+    
+    def calculate_word_score(self, word: str, frequency: Dict[str, int]) -> float:
+        """Calculate score for a single word using the scoring algorithm"""
+        unique_letters = set(word)
+        
+        # Position weights (first and last positions slightly favored)
+        position_score = 0
+        used_letters = set()
+        
+        for i, letter in enumerate(word):
+            if letter not in used_letters:
+                position_score += frequency.get(letter, 0) * self.POSITION_WEIGHTS[i]
+                used_letters.add(letter)
+        
+        # Vowel distribution bonus (prefer words with good vowel spread)
+        vowels = set('AEIOU')
+        vowel_count = len([letter for letter in unique_letters if letter in vowels])
+        vowel_bonus = min(vowel_count * self.VOWEL_BONUS, self.MAX_VOWEL_BONUS)
+        
+        # Common starting/ending letter bonus
+        start_bonus = 0
+        end_bonus = 0
+        common_starts = ['S', 'C', 'B', 'T', 'P', 'A', 'F', 'G', 'D', 'M']
+        common_ends = ['S', 'E', 'Y', 'D', 'T', 'A', 'R', 'N', 'L']
+        
+        if word[0] in common_starts:
+            start_bonus = self.START_END_BONUS
+        if word[-1] in common_ends:
+            end_bonus = self.START_END_BONUS
+        
+        # Penalty for repeated letters (they provide less information)
+        repeat_penalty = (len(word) - len(unique_letters)) * self.REPEAT_PENALTY
+        
+        final_score = position_score + vowel_bonus + start_bonus + end_bonus - repeat_penalty
+        return final_score
     
     def close(self):
         """Close database connection"""
         self.conn.close()
 
 
+def graceful_exit(helper: WordleHelper, message: str = "👋 Thanks for using the Wordle Helper!"):
+    """Centralized exit function that handles cleanup and goodbye message"""
+    print(f"\n{message}")
+    helper.close()
+    exit(0)
+
+
 def interactive_wordle_helper(helper: WordleHelper):
     """Interactive Wordle helper that asks for user input"""
     
-    print("🎯 Welcome to the Interactive Wordle Helper! 🎯")
-    print("=" * 50)
+    print(f"🎯 Welcome to the Interactive Wordle Helper v{__version__}! 🎯")
+    print("=" * 40)
     
     try:
         # Store previous constraints
@@ -229,7 +275,7 @@ def interactive_wordle_helper(helper: WordleHelper):
             print("4. Exit")
             choice = input("Enter choice (1/2/3/4, default: 2): ").strip()
             if choice == "4":
-                break
+                graceful_exit(helper)
             elif choice == "1":
                 # Clear all previous inputs and start fresh
                 prev_word_length = None
@@ -514,21 +560,21 @@ def interactive_wordle_helper(helper: WordleHelper):
                 # Show top 5 recommendations separately if there are many results
                 if len(results) > 5:
                     print(f"\n⭐ Top 5 recommended words:")
-                    # Calculate scores for top 5
+                    # Calculate scores for top 5 using the centralized scoring method
                     top5 = best_words[:5]
-                    word_scores = [(word, sum(frequency.get(letter, 0) for letter in set(word))) for word in top5]
+                    word_scores = [(word, helper.calculate_word_score(word, frequency)) for word in top5]
                     for i, (word, score) in enumerate(word_scores, 1):
-                        print(f"  {i}. {word} (score: {score})")
+                        print(f"  {i}. {word} (score: {score:.0f})")
             else:
                 print("❌ No words found matching your criteria.")
                 print("💡 Try reducing the constraints or check for typos.")
 
             # Ask if user wants to try again
-            print(f"\n" + "=" * 50)
+            print(f"\n" + "=" * 40)
             # Now offer options for next round
             # The loop will handle the choice
     except KeyboardInterrupt:
-        print("\n\n👋 Thanks for using the Wordle Helper!")
+        graceful_exit(helper, "\n👋 Thanks for using the Wordle Helper!")
 
 
 def main(helper: WordleHelper):
@@ -598,16 +644,25 @@ if __name__ == "__main__":
     print("\nChoose mode:")
     print("1. Interactive Wordle Helper")
     print("2. Demo mode (examples)")
+    print("3. Exit")
 
-    choice = input("Enter choice (1 or 2, default: 1): ").strip()
+    choice = "1"  # Default choice
+    try:
+        choice = input("Enter choice (1/2/3, default: 1): ").strip()
+    except KeyboardInterrupt:
+        graceful_exit(helper, "\n👋 Thanks for using the Wordle Helper!")
 
     try:
         if choice == "2":
             main(helper)
+        elif choice == "3":
+            graceful_exit(helper)
         else:
             interactive_wordle_helper(helper)
+    except KeyboardInterrupt:
+        graceful_exit(helper, "\n👋 Thanks for using the Wordle Helper!")
     finally:
         helper.close()
         
         
-print("DEBUG")
+# print("DEBUG End: Script finished")
